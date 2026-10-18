@@ -13,6 +13,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null)
   const [query, setQuery] = useState('')
   const [freeOnly, setFreeOnly] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -99,21 +100,29 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar
-        carparks={carparks}
-        freeById={freeById}
-        evaluationById={evaluationById}
-        selected={selected}
-        onSelect={handleSelect}
-        onClear={handleClear}
-        query={query}
-        onQueryChange={setQuery}
-        freeOnly={freeOnly}
-        onFreeOnlyChange={setFreeOnly}
-        parts={parts}
-        freeCount={freeCount}
-        onRefresh={handleRefresh}
-      />
+      {panelOpen && (
+        <Sidebar
+          carparks={carparks}
+          freeById={freeById}
+          evaluationById={evaluationById}
+          selected={selected}
+          onSelect={handleSelect}
+          onClear={handleClear}
+          onClose={() => setPanelOpen(false)}
+          query={query}
+          onQueryChange={setQuery}
+          freeOnly={freeOnly}
+          onFreeOnlyChange={setFreeOnly}
+          parts={parts}
+          freeCount={freeCount}
+          onRefresh={handleRefresh}
+        />
+      )}
+      {!panelOpen && (
+        <button type="button" className="panel-toggle" onClick={() => setPanelOpen(true)}>
+          Show panel
+        </button>
+      )}
       <main className="map-pane">
         <MapView
           carparks={mappedCarparks}
@@ -122,6 +131,7 @@ export default function App() {
           evaluation={selected ? evaluationById.get(selected.id) : null}
           onSelect={handleSelect}
           onClear={handleClear}
+          panelOpen={panelOpen}
         />
       </main>
     </div>

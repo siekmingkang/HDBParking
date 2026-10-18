@@ -111,6 +111,32 @@ button {
   overflow: hidden;
 }
 
+/* Grab handle for the mobile swipe-to-hide gesture. Not shown while the
+   panel is docked to the left on desktop. */
+.sidebar__handle {
+  display: none;
+}
+
+/* Restore button shown while the panel is hidden. */
+.panel-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--gutter) + 6px);
+  transform: translateX(-50%);
+  z-index: 500;
+  padding: 10px 18px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  background-color: var(--glass-chip);
+  background-image: var(--sheen);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  box-shadow: var(--shadow-md);
+}
+
 /* ------------------------------------------------------------------ *
  * Header
  * ------------------------------------------------------------------ */
@@ -687,6 +713,7 @@ button {
   .now,
   .details,
   .controls__search,
+  .panel-toggle,
   .leaflet-popup-content-wrapper,
   .leaflet-top.leaflet-right .leaflet-control-zoom {
     background-color: #ffffff;
@@ -719,13 +746,49 @@ button {
     bottom: 8px;
     width: auto;
     max-height: 62%;
+    /* One scroll gesture for the whole panel: the inner list grows instead of
+       scrolling on its own, so header, clock, filters and results move together. */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .results {
+    flex: 0 0 auto;
   }
 
   .results__list {
-    max-height: 34vh;
+    overflow: visible;
   }
 
+  .sidebar__handle {
+    display: block;
+    flex: 0 0 auto;
+    position: relative;
+    height: 26px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    /* Claim the gesture outright so the panel never scrolls or the page
+       pull-to-refreshes mid-swipe. */
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .sidebar__handle::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 44px;
+    height: 4px;
+    margin-left: -22px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.22);
+  }
+
+  /* Pinch and double-tap zoom still work, so the +/− buttons just eat map space. */
   .leaflet-top.leaflet-right .leaflet-control-zoom {
-    margin: 10px 10px 0 0;
+    display: none;
   }
 }

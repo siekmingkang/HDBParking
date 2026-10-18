@@ -1,7 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import CarparkDetails from './CarparkDetails.jsx'
 
 const MAX_LIST = 150
+
+/** Drag distance (px) past which a swipe on the handle dismisses the panel. */
+const SWIPE_HIDE_PX = 80
 
 export default function Sidebar({
   carparks,
@@ -10,6 +13,7 @@ export default function Sidebar({
   selected,
   onSelect,
   onClear,
+  onClose,
   query,
   onQueryChange,
   freeOnly,
@@ -18,6 +22,43 @@ export default function Sidebar({
   freeCount,
   onRefresh,
 }) {
+  const asideRef = useRef(null)
+  const dragRef = useRef(null)
+  const movedRef = useRef(false)
+
+  // Swipe down on the top handle to hide the panel. Only the handle starts a
+  // drag, so the panel's own vertical scroll is never fought over.
+  const handleTouchStart = (event) => {
+    dragRef.current = { y: event.touches[0].clientY, dy: 0 }
+    movedRef.current = false
+  }
+
+  const handleTouchMove = (event) => {
+    const drag = dragRef.current
+    if (!drag) return
+    drag.dy = Math.max(0, event.touches[0].clientY - drag.y)
+    if (drag.dy > 6) movedRef.current = true
+    asideRef.current.style.transform = `translateY(${drag.dy}px)`
+  }
+
+  const handleTouchEnd = () => {
+    const drag = dragRef.current
+    dragRef.current = null
+    if (!drag) return
+
+    const aside = asideRef.current
+    aside.style.transition = 'transform 0.22s var(--ease)'
+    if (drag.dy > SWIPE_HIDE_PX) {
+      aside.style.transform = 'translateY(110%)'
+      setTimeout(onClose, 220)
+    } else {
+      aside.style.transform = ''
+      setTimeout(() => {
+        aside.style.transition = ''
+      }, 220)
+    }
+  }
+
   const results = useMemo(() => {
     const needle = query.trim().toLowerCase()
     const matches = []
@@ -41,7 +82,24 @@ export default function Sidebar({
   const selectedEvaluation = selected ? evaluationById.get(selected.id) : null
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" ref={asideRef}>
+      {/* Mobile grab handle: swipe down to hide, or tap it. */}
+      <button
+        type="button"
+        className="sidebar__handle"
+        aria-label="Hide panel"
+        onClick={() => {
+          if (movedRef.current) {
+            movedRef.current = false
+            return
+          }
+          onClose()
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      />
       <header className="sidebar__head">
         <h1 className="sidebar__title">HDB Car Park Map</h1>
         <p className="sidebar__subtitle">
