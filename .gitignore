@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+
+# Generated from HDBCarparkInformation.csv by scripts/build-data.mjs (predev /
+# prebuild), so it is rebuilt everywhere rather than committed.
+public/data/
