@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import MapView from './components/MapView.jsx'
 import Sidebar from './components/Sidebar.jsx'
 import { evaluateRule } from './lib/freeParking.js'
+import { setHolidays } from './lib/holidays.js'
 import { singaporeParts } from './lib/singaporeTime.js'
 
 const REFRESH_INTERVAL_MS = 30_000
@@ -17,13 +18,22 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`${import.meta.env.BASE_URL}data/carparks.json`)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json()
+    Promise.all([
+      fetch(`${import.meta.env.BASE_URL}data/carparks.json`),
+      fetch(`${import.meta.env.BASE_URL}data/holidays.json`),
+    ])
+      .then((responses) => {
+        for (const response of responses) {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        }
+        return Promise.all(responses.map((response) => response.json()))
       })
-      .then((payload) => {
-        if (!cancelled) setData(payload)
+      .then(([carparkPayload, holidayPayload]) => {
+        if (cancelled) return
+        // Load the holiday table before the data renders, so the first
+        // free-parking evaluation already includes public holidays.
+        setHolidays(holidayPayload.holidays)
+        setData(carparkPayload)
       })
       .catch((err) => {
         if (!cancelled) setError(err.message)
@@ -83,7 +93,7 @@ export default function App() {
         <h1>Could not load car park data</h1>
         <p>{error}</p>
         <p>
-          Run <code>npm run build:data</code> to generate <code>public/data/carparks.json</code>.
+          Run <code>npm run build:data</code> to generate <code>public/data/</code>.
         </p>
       </div>
     )

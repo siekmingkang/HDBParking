@@ -1,5 +1,5 @@
 /**
- * Build script: HDB Carpark Information (data.gov.sg) -> public/data/carparks.json
+ * Build script: data.gov.sg datasets -> public/data/*.json
  *
  * Responsibilities:
  *  1. Download the HDB Carpark Information dataset from the data.gov.sg
@@ -8,6 +8,8 @@
  *     latitude/longitude so the points land correctly on OpenStreetMap.
  *  3. Normalise the "free_parking" column into a machine-readable rule that
  *     the web app can evaluate against the current date/time.
+ *  4. Download the Singapore Public Holidays dataset so the app knows which
+ *     dates count as public holidays (used by the free-parking rule).
  *
  * Run with:  npm run build:data
  */
@@ -19,11 +21,21 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
 
 const OUT_PATH = resolve(ROOT, 'public', 'data', 'carparks.json')
+const HOLIDAY_OUT_PATH = resolve(ROOT, 'public', 'data', 'holidays.json')
 
 // HDB Carpark Information on data.gov.sg. The datastore_search endpoint is the
 // documented, keyless way to pull the current rows (same columns as the CSV).
 const DATASET_ID = 'd_23f946fa557947f93a8043bbef41dd09'
-const DATASET_URL = `https://data.gov.sg/api/action/datastore_search?resource_id=${DATASET_ID}&limit=100000`
+const DATASET_URL = datastoreUrl(DATASET_ID)
+
+// Singapore Public Holidays (date, day, holiday), consolidated and updated
+// annually by data.gov.sg.
+const HOLIDAY_DATASET_ID = 'd_8ef23381f9417e4d4254ee8b4dcdb176'
+const HOLIDAY_DATASET_URL = datastoreUrl(HOLIDAY_DATASET_ID)
+
+function datastoreUrl(resourceId) {
+  return `https://data.gov.sg/api/action/datastore_search?resource_id=${resourceId}&limit=100000`
+}
 
 /* ------------------------------------------------------------------ *
  * SVY21 -> WGS84
@@ -184,9 +196,9 @@ function selfCheck() {
 /* ------------------------------------------------------------------ *
  * Data source
  * ------------------------------------------------------------------ */
-/** Download every row of the dataset from the data.gov.sg datastore API. */
-async function fetchRecords() {
-  const res = await fetch(DATASET_URL)
+/** Download every row of a dataset from the data.gov.sg datastore API. */
+async function fetchRecords(datasetUrl) {
+  const res = await fetch(datasetUrl)
   if (!res.ok) throw new Error(`data.gov.sg returned HTTP ${res.status}`)
   const body = await res.json()
   if (!body.success) throw new Error(`data.gov.sg error: ${JSON.stringify(body)}`)
@@ -264,6 +276,31 @@ function parseFreeParking(raw) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Public holidays
+ *
+ * The data.gov.sg consolidated holidays dataset covers 2020 onwards and is
+ * updated annually (~Q3) when the next year is gazetted. Rows look like:
+ *   { date: "2025-01-29", day: "Wednesday", holiday: "Chinese New Year" }
+ * Substitute holidays are already listed as their own rows (e.g.
+ * "Chinese New Year (Observed)"), so no extra logic is needed here.
+ * ------------------------------------------------------------------ */
+const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
+
+/** data.gov.sg holiday rows -> sorted [{ date, name }] list. */
+function buildHolidays(records) {
+  const holidays = []
+  for (const record of records) {
+    const date = String(record.date ?? '').trim()
+    const name = String(record.holiday ?? '').trim()
+    if (!YYYY_MM_DD.test(date) || !name) continue
+    holidays.push({ date, name })
+  }
+  holidays.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  if (holidays.length === 0) throw new Error('holiday dataset contained no usable rows')
+  return holidays
+}
+
+/* ------------------------------------------------------------------ *
  * Main
  * ------------------------------------------------------------------ */
 const NUMERIC_OR_NULL = (value) => {
@@ -274,7 +311,7 @@ const NUMERIC_OR_NULL = (value) => {
 async function main() {
   selfCheck()
 
-  const records = await fetchRecords()
+  const records = await fetchRecords(DATASET_URL)
 
   const carparks = []
   let skipped = 0
@@ -327,6 +364,22 @@ async function main() {
   console.log(`Downloaded ${records.length} rows -> ${carparks.length} car parks (${skipped} skipped).`)
   console.log(`Sample: ${first.id} @ ${first.lat}, ${first.lon}`)
   console.log(`Wrote ${OUT_PATH}`)
+
+  const holidayRecords = await fetchRecords(HOLIDAY_DATASET_URL)
+  const holidays = buildHolidays(holidayRecords)
+
+  const holidayPayload = {
+    source: `Singapore Public Holidays (data.gov.sg ${HOLIDAY_DATASET_ID})`,
+    generatedAt: new Date().toISOString(),
+    count: holidays.length,
+    holidays,
+  }
+  writeFileSync(HOLIDAY_OUT_PATH, JSON.stringify(holidayPayload))
+
+  console.log(
+    `Downloaded ${holidayRecords.length} rows -> ${holidays.length} holidays (${holidays[0].date} to ${holidays[holidays.length - 1].date}).`,
+  )
+  console.log(`Wrote ${HOLIDAY_OUT_PATH}`)
 }
 
 main().catch((err) => {

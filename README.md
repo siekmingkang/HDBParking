@@ -17,9 +17,10 @@ example:
 | `SUN & PH FR 1PM-10.30PM`     | Free on Sundays & public holidays, 13:00–22:30     |
 
 The app evaluates that rule against the **current Singapore date and time**
-(UTC+8, no DST) and against a list of gazetted **Singapore public holidays**
-(`src/lib/holidays.js`). This works entirely offline — there is no live
-availability API and no API key required.
+(UTC+8, no DST) and against the **Singapore public holidays** from the
+data.gov.sg consolidated holidays dataset (`public/data/holidays.json`,
+referenced by `src/lib/holidays.js`). No availability API and no API key
+required.
 
 > The map shows the *entitlement* based on the HDB schedule, not live lot
 > availability.
@@ -32,7 +33,8 @@ npm run dev      # http://localhost:5173
 ```
 
 The CSV is converted to `public/data/carparks.json` automatically before `dev`
-and `build` (via the `predev` / `prebuild` scripts).
+and `build` (via the `predev` / `prebuild` scripts), together with
+`public/data/holidays.json`.
 
 Other scripts:
 
@@ -57,9 +59,10 @@ You do **not** need to name the repo in the config. Vite's `base` comes from the
 `github.event.repository.name`, so a rename or a fork keeps working. Locally the
 base stays `/`, which is why `npm run preview` sits at the root.
 
-`public/data/carparks.json` is **gitignored** on purpose: it is 800 KB of
-generated data, and `npm run build` regenerates it by downloading the current
-dataset from data.gov.sg. No local copy of the data is committed.
+`public/data/` is **gitignored** on purpose: it is generated data (≈800 KB of
+car parks plus the holiday list), and `npm run build` regenerates it by
+downloading the current datasets from data.gov.sg. No local copy of the data is
+committed.
 
 ## How the data is prepared
 
@@ -73,6 +76,9 @@ projected **SVY21** `x_coord`/`y_coord` metres. `scripts/build-data.mjs`:
 3. Normalises `free_parking` into a machine-readable rule
    (`{ days, start, end }`, times as minutes past midnight).
 4. Writes `public/data/carparks.json` (≈2,273 car parks).
+5. Downloads the Singapore Public Holidays dataset (data.gov.sg
+   `d_8ef23381f9417e4d4254ee8b4dcdb176`, 2020 onwards) and writes
+   `public/data/holidays.json`.
 
 The build needs network access; if data.gov.sg is unreachable the build fails
 rather than falling back to stale data.
@@ -82,6 +88,7 @@ rather than falling back to stale data.
 ```
 scripts/build-data.mjs        Download → JSON build step (projection + rule parsing)
 public/data/carparks.json     Generated data consumed by the app (gitignored)
+public/data/holidays.json     Generated public holidays data (gitignored)
 .github/workflows/deploy.yml  Build + publish dist/ to GitHub Pages
 src/
   App.jsx                     Loads data, computes free status, holds UI state
@@ -92,7 +99,7 @@ src/
   lib/
     singaporeTime.js          Singapore (UTC+8) date/time helpers
     freeParking.js            free-parking rule evaluation + descriptions
-    holidays.js               Singapore public holidays (2025–2027)
+    holidays.js               Public-holiday lookup over holidays.json
   styles.css
 ```
 
@@ -129,8 +136,11 @@ Lighthouse reports an accessibility score of **1.0** on this build.
 
 ## Notes & limitations
 
-- Public holidays are hard-coded in `src/lib/holidays.js` from the Ministry of
-  Manpower list; add new years when they are gazetted (2028 onwards).
+- Public holidays come from the data.gov.sg consolidated holidays dataset
+  `d_8ef23381f9417e4d4254ee8b4dcdb176` (2020 onwards, updated ~annually in Q3
+  when the next year is gazetted). Substitute holidays are included as separate
+  "(Observed)" rows.
 - Markers are drawn on a canvas (`preferCanvas`) for smooth interaction with the
   full set of car parks.
-- Data source: HDB Car Park Information. Map tiles © OpenStreetMap contributors.
+- Data sources: HDB Car Park Information and Singapore Public Holidays. Map
+  tiles © OpenStreetMap contributors.
