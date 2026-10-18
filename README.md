@@ -58,26 +58,29 @@ You do **not** need to name the repo in the config. Vite's `base` comes from the
 base stays `/`, which is why `npm run preview` sits at the root.
 
 `public/data/carparks.json` is **gitignored** on purpose: it is 800 KB of
-generated data, and `npm run build` regenerates it from the committed CSV. The
-CSV itself must stay committed, or the CI build has nothing to parse.
+generated data, and `npm run build` regenerates it by downloading the current
+dataset from data.gov.sg. No local copy of the data is committed.
 
 ## How the data is prepared
 
-`HDBCarparkInformation.csv` does not contain latitude/longitude — it stores
+The HDB Carpark Information dataset (data.gov.sg
+`d_23f946fa557947f93a8043bbef41dd09`) has no latitude/longitude — it stores
 projected **SVY21** `x_coord`/`y_coord` metres. `scripts/build-data.mjs`:
 
-1. Parses the CSV (RFC-4180, handles quoted fields containing commas).
+1. Downloads every row from the data.gov.sg datastore API (`datastore_search`).
 2. Converts SVY21 → WGS84 lat/lon, verified to sub-metre accuracy against
    OneMap ground-truth coordinates (see the self-check printed on every build).
 3. Normalises `free_parking` into a machine-readable rule
    (`{ days, start, end }`, times as minutes past midnight).
 4. Writes `public/data/carparks.json` (≈2,273 car parks).
 
+The build needs network access; if data.gov.sg is unreachable the build fails
+rather than falling back to stale data.
+
 ## Project structure
 
 ```
-HDBCarparkInformation.csv     Source data (HDB)
-scripts/build-data.mjs        CSV → JSON build step (projection + rule parsing)
+scripts/build-data.mjs        Download → JSON build step (projection + rule parsing)
 public/data/carparks.json     Generated data consumed by the app (gitignored)
 .github/workflows/deploy.yml  Build + publish dist/ to GitHub Pages
 src/

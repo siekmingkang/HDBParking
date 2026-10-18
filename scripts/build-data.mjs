@@ -1,8 +1,9 @@
 /**
- * Build script: HDBCarparkInformation.csv -> public/data/carparks.json
+ * Build script: HDB Carpark Information (data.gov.sg) -> public/data/carparks.json
  *
  * Responsibilities:
- *  1. Parse the raw HDB CSV (handles quoted fields that contain commas).
+ *  1. Download the HDB Carpark Information dataset from the data.gov.sg
+ *     datastore API, so the build never depends on a stale local copy.
  *  2. Convert the SVY21 (Singapore) projected x/y coordinates into WGS84
  *     latitude/longitude so the points land correctly on OpenStreetMap.
  *  3. Normalise the "free_parking" column into a machine-readable rule that
@@ -10,15 +11,19 @@
  *
  * Run with:  npm run build:data
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
 
-const CSV_PATH = resolve(ROOT, 'HDBCarparkInformation.csv')
 const OUT_PATH = resolve(ROOT, 'public', 'data', 'carparks.json')
+
+// HDB Carpark Information on data.gov.sg. The datastore_search endpoint is the
+// documented, keyless way to pull the current rows (same columns as the CSV).
+const DATASET_ID = 'd_23f946fa557947f93a8043bbef41dd09'
+const DATASET_URL = `https://data.gov.sg/api/action/datastore_search?resource_id=${DATASET_ID}&limit=100000`
 
 /* ------------------------------------------------------------------ *
  * SVY21 -> WGS84
@@ -177,54 +182,20 @@ function selfCheck() {
 }
 
 /* ------------------------------------------------------------------ *
- * CSV parsing
+ * Data source
  * ------------------------------------------------------------------ */
-/** Minimal RFC-4180 style CSV parser (handles quotes, CRLF and embedded commas). */
-function parseCsv(text) {
-  const rows = []
-  let row = []
-  let field = ''
-  let inQuotes = false
-
-  for (let i = 0; i < text.length; i += 1) {
-    const char = text[i]
-
-    if (inQuotes) {
-      if (char === '"') {
-        if (text[i + 1] === '"') {
-          field += '"'
-          i += 1
-        } else {
-          inQuotes = false
-        }
-      } else {
-        field += char
-      }
-      continue
-    }
-
-    if (char === '"') {
-      inQuotes = true
-    } else if (char === ',') {
-      row.push(field)
-      field = ''
-    } else if (char === '\n' || char === '\r') {
-      if (char === '\r' && text[i + 1] === '\n') i += 1
-      row.push(field)
-      rows.push(row)
-      row = []
-      field = ''
-    } else {
-      field += char
-    }
+/** Download every row of the dataset from the data.gov.sg datastore API. */
+async function fetchRecords() {
+  const res = await fetch(DATASET_URL)
+  if (!res.ok) throw new Error(`data.gov.sg returned HTTP ${res.status}`)
+  const body = await res.json()
+  if (!body.success) throw new Error(`data.gov.sg error: ${JSON.stringify(body)}`)
+  const { records, total } = body.result
+  if (records.length < total) {
+    // shortcut: single request capped by the server's max limit; paginate if this trips.
+    throw new Error(`received ${records.length} of ${total} rows; bump the limit or paginate`)
   }
-
-  if (field !== '' || row.length > 0) {
-    row.push(field)
-    rows.push(row)
-  }
-
-  return rows.filter((r) => r.length > 1 || (r.length === 1 && r[0].trim() !== ''))
+  return records
 }
 
 /* ------------------------------------------------------------------ *
@@ -300,19 +271,16 @@ const NUMERIC_OR_NULL = (value) => {
   return Number.isFinite(n) ? n : null
 }
 
-function main() {
+async function main() {
   selfCheck()
 
-  const csv = readFileSync(CSV_PATH, 'utf8')
-  const rows = parseCsv(csv)
-  const header = rows[0].map((h) => h.trim())
-  const index = Object.fromEntries(header.map((name, i) => [name, i]))
+  const records = await fetchRecords()
 
   const carparks = []
   let skipped = 0
 
-  for (const row of rows.slice(1)) {
-    const get = (name) => (row[index[name]] ?? '').trim()
+  for (const record of records) {
+    const get = (name) => String(record[name] ?? '').trim()
 
     const x = Number(get('x_coord'))
     const y = Number(get('y_coord'))
@@ -343,7 +311,7 @@ function main() {
   }
 
   const payload = {
-    source: 'HDB Carpark Information (HDBCarparkInformation.csv)',
+    source: `HDB Carpark Information (data.gov.sg ${DATASET_ID})`,
     projection: 'SVY21 -> WGS84 (client-side converted at build time)',
     singaporeUtcOffsetMinutes: SINGAPORE_TIMEZONE_OFFSET_MINUTES,
     generatedAt: new Date().toISOString(),
@@ -356,9 +324,12 @@ function main() {
 
   // Sanity report so regressions in the converter are easy to spot.
   const [first] = carparks
-  console.log(`Parsed ${rows.length - 1} CSV rows -> ${carparks.length} car parks (${skipped} skipped).`)
+  console.log(`Downloaded ${records.length} rows -> ${carparks.length} car parks (${skipped} skipped).`)
   console.log(`Sample: ${first.id} @ ${first.lat}, ${first.lon}`)
   console.log(`Wrote ${OUT_PATH}`)
 }
 
-main()
+main().catch((err) => {
+  console.error(err)
+  process.exitCode = 1
+})
